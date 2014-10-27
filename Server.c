@@ -41,6 +41,12 @@
 #include <pthread.h>
 #include <ctype.h>
 
+
+/*
+  variables
+ */
+int connection_count = 0;
+
 struct client_thread {
   pthread_t thread;
   int thread_id;
@@ -95,6 +101,19 @@ int accept_incoming(int sock)
   return -1;
 }
 
+int doing_connections(int fd){
+
+  connection_count++;
+  printf("Connection %d  seen \n", connection_count);
+  char msgbuff[1024];
+  snprintf(msgbuff, 1024, ":dancingcats.com 020 * Hello and welcome to the server.\n");
+  write(fd, msgbuff, strlen(msgbuff));
+  close(fd);
+  return 0;
+
+}
+
+
 int main(int argc,char **argv)
 {
   signal(SIGPIPE, SIG_IGN);
@@ -111,7 +130,8 @@ int main(int argc,char **argv)
     int client_sock = accept_incoming(master_socket);
     if (client_sock!=-1) {
       // Got connection -- do something with it.
-	client_sock = close(1);
+      doing_connections(client_sock);
+
     }
   }
 }
