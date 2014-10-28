@@ -16,7 +16,7 @@
 
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
-  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, US.
 
   Sections of this code are based on work by Paul Gardner-Stephen 2014 
   this can be found at https://github.com/gardners/nos2014assignment.git
@@ -47,6 +47,10 @@
  */
 int connection_count = 0;
 
+
+/*
+  struct by Paul Gardner-Stephen
+ */
 struct client_thread {
   pthread_t thread;
   int thread_id;
@@ -101,6 +105,40 @@ int accept_incoming(int sock)
   return -1;
 }
 
+/*
+  copied from test.c 
+  All attribution to Paul Gardner-Stephen
+ */
+int read_from_socket(int sock, unsigned char *buffer, int *count, int buffer_size, int timeout){
+
+  fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, NULL)| O_NONBLOCK);
+
+  int t=time(0) + timeout;
+  if(*count>=buffer_size) return 0;
+  int r=read(sock, &buffer[*count], buffer_size-*count);
+  while(r!=0){
+    if(r>0){
+	(*count)+=r;
+	break;
+      }
+      r=read(sock, &buffer[*count], buffer_size-*count);
+      if(r==-1&&errno!=EAGAIN){
+	perror("read() returned error.Stopping reading from socket.");
+	return -1;
+      }else usleep(100000);
+      //timeout after a few seconds of nothing
+      if(time(0)>=t) break;
+  }
+    buffer[*count]=0;
+    return 0;
+
+}
+
+/*
+  this should handle all incoming connections
+  first welcomes user
+  closes connection on timeout of 5 seconds
+ */
 int doing_connections(int fd){
 
   connection_count++;
@@ -108,6 +146,39 @@ int doing_connections(int fd){
   char msgbuff[1024];
   snprintf(msgbuff, 1024, ":dancingcats.com 020 * Hello and welcome to the server.\n");
   write(fd, msgbuff, strlen(msgbuff));
+
+  char unknownbuff[8192];
+  int length=0;
+  int r = read_from_socket(fd,(unsigned char *) unknownbuff, &length, 8192, 5);
+  
+  if(length==0){
+    snprintf(msgbuff, 1024, "ERROR:Closing Link: Dancing cats timed out (Longer than 5 secs)\n");
+    write(fd, msgbuff, strlen(msgbuff));
+    close(fd);
+  } 
+  
+  char nick[1024], channel_name[1024];
+  
+  r = sscanf(unknownbuff, "JOIN %s\n", channel_name);
+  if(strlen(nick) == 0){
+    snprintf(msgbuff, 1024, ":dancingcats.com 241 * JOIN command sent before registration\n");
+    write(fd, msgbuff, strlen(msgbuff));
+  }
+  
+  r = sscanf(unknownbuff, "PRIVMSG %s\n", channel_name);
+  if(strlen(nick) == 0){
+    snprintf(msgbuff, 1024, ":dancingcats.com 241 * PRIVMSG command sent before registration\n");
+    write(fd, msgbuff, strlen(msgbuff));
+  }
+  
+  r = sscanf(unknownbuff, "NICK: %s\n", nick);
+  if(r != 1) printf("ERROR: nick not resolved");
+  if(strlen(nick) != 0){
+    snprintf(msgbuff, 1024, ":dancingcats.com 241 %s Greetings, welcome to Clefable Cottage\n",
+    nick);
+    write(fd, msgbuff, strlen(msgbuff));
+  }
+
   close(fd);
   return 0;
 
@@ -130,6 +201,10 @@ int main(int argc,char **argv)
     int client_sock = accept_incoming(master_socket);
     if (client_sock!=-1) {
       // Got connection -- do something with it.
+      /*
+	ignores sigpipe errors and should prevent broken pipe crash
+	*/
+	signal(SIGPIPE, SIG_IGN);
       doing_connections(client_sock);
 
     }
