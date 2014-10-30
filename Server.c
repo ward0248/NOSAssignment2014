@@ -106,7 +106,7 @@ int accept_incoming(int sock)
 }
 
 /*
-  copied from test.c 
+  read_from_socket copied from test.c 
   All attribution to Paul Gardner-Stephen
  */
 int read_from_socket(int sock, unsigned char *buffer, int *count, int buffer_size, int timeout){
@@ -138,6 +138,7 @@ int read_from_socket(int sock, unsigned char *buffer, int *count, int buffer_siz
   this should handle all incoming connections
   first welcomes user
   closes connection on timeout of 5 seconds
+  if receives JOIN or PRIVMSG before registered then informs of error
  */
 int doing_connections(int fd){
 
@@ -157,7 +158,7 @@ int doing_connections(int fd){
     close(fd);
   } 
   
-  char nick[1024], channel_name[1024];
+  char nick[1024], channel_name[1024], user[1024];
   
   r = sscanf(unknownbuff, "JOIN %s\n", channel_name);
   if(strlen(nick) == 0){
@@ -172,16 +173,38 @@ int doing_connections(int fd){
   }
   
   r = sscanf(unknownbuff, "NICK: %s\n", nick);
-  if(r != 1) printf("ERROR: nick not resolved");
+  if(r != 1){
+      snprintf(msgbuff, 1024, "ERROR: nick not resolved");
+      write(fd, msgbuff, strlen(msgbuff));
+}
   if(strlen(nick) != 0){
-    snprintf(msgbuff, 1024, ":dancingcats.com 241 %s Greetings, welcome to Clefable Cottage\n",
-    nick);
-    write(fd, msgbuff, strlen(msgbuff));
+//    snprintf(msgbuff, 1024, ":dancingcats.com 241 %s Greetings, welcome 
+//to Clefable Cottage\n",  nick);
+//    write(fd, msgbuff, strlen(msgbuff));
   }
+
+  r = sscanf(unknownbuff, "USER: %s\n", user);
+  if(strlen(nick) == 0){
+     snprintf(msgbuff, 1024, "ERROR: nick not resolved");
+     write(fd, msgbuff, strlen(msgbuff));}
+  if(strlen(nick) != 0){
+     snprintf(msgbuff, 1024, ":dancingcats.com 001 %s Greetings, Welcome to Clefable Cottage\n", nick);
+     write(fd, msgbuff, strlen(msgbuff));
+     snprintf(msgbuff, 1024, ":dancingcats.com 002 %s Poke Centre is to the left\n", nick);
+     write(fd, msgbuff, strlen(msgbuff));
+     snprintf(msgbuff, 1024, ":dancingcats.com 003 %s Gym is to the right\n", nick);
+     write(fd, msgbuff, strlen(msgbuff));
+     snprintf(msgbuff, 1024, ":dancingcats.com 004 %s Check out the Ghost Tower\n", nick);
+     write(fd, msgbuff, strlen(msgbuff));
+     snprintf(msgbuff, 1024, ":dancingcats.com 253 %s There are 50 :unknown connections\n", nick);
+     write(fd, msgbuff, strlen(msgbuff));
+     snprintf(msgbuff, 1024, ":dancingcats.com 254 %s There are 3 :channels formed\n", nick);
+     write(fd, msgbuff, strlen(msgbuff));
+     snprintf(msgbuff, 1024, ":dancingcats.com 255 %s There are 1004 clients and 1 server\n", nick);
+}
 
   close(fd);
   return 0;
-
 }
 
 
@@ -201,10 +224,6 @@ int main(int argc,char **argv)
     int client_sock = accept_incoming(master_socket);
     if (client_sock!=-1) {
       // Got connection -- do something with it.
-      /*
-	ignores sigpipe errors and should prevent broken pipe crash
-	*/
-	signal(SIGPIPE, SIG_IGN);
       doing_connections(client_sock);
 
     }

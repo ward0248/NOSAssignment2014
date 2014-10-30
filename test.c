@@ -765,6 +765,9 @@ int test_multipleclients()
 
 int main(int argc,char **argv)
 {
+
+  signal(SIGPIPE, SIG_IGN);
+
   if (argc!=2) {
     fprintf(stderr,"usage: test <example program>\n");
     exit(-1);
