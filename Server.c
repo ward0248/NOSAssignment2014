@@ -138,7 +138,8 @@ int read_from_socket(int sock, unsigned char *buffer, int *count, int buffer_siz
   this should handle all incoming connections
   first welcomes user
   closes connection on timeout of 5 seconds
-  if receives JOIN or PRIVMSG before registered then informs of error
+  if receives JOIN or PRIVMSG request before nick registered then informs of error
+  when recieves nick and user request, client becomes registered and is greeted
  */
 int doing_connections(int fd){
 
@@ -151,41 +152,44 @@ int doing_connections(int fd){
   char unknownbuff[8192];
   int length=0;
   int r = read_from_socket(fd,(unsigned char *) unknownbuff, &length, 8192, 5);
-  
+  printf("debug:unknownbuff directly after read in:%s:\n", unknownbuff);
   if(length==0){
     snprintf(msgbuff, 1024, "ERROR:Closing Link: Dancing cats timed out (Longer than 5 secs)\n");
     write(fd, msgbuff, strlen(msgbuff));
     close(fd);
+    fprintf(stdout, "timeout close:%s  %d\n", msgbuff, connection_count);
+    return 0;
   } 
   
-  char nick[1024], channel_name[1024], user[1024];
+  char nick[1024], channel_name[1024], user[1024], othernick[1024];
   
   r = sscanf(unknownbuff, "JOIN %s\n", channel_name);
-  if(strlen(nick) == 0){
+  printf("JOIN channel name: %s\n", channel_name);
+  if(r == 1 && strlen(nick) == 0){
     snprintf(msgbuff, 1024, ":dancingcats.com 241 * JOIN command sent before registration\n");
     write(fd, msgbuff, strlen(msgbuff));
   }
   
-  r = sscanf(unknownbuff, "PRIVMSG %s\n", channel_name);
-  if(strlen(nick) == 0){
+  printf("debug:unknownbuff after scanning for JOIN:%s:\n", unknownbuff);
+  r = read_from_socket(fd,(unsigned char *) unknownbuff, &length, 8192, 5);
+  printf("debug:unknownbuff after scanning for JOIN and rereading:%s:\n", unknownbuff);
+  
+  r = sscanf(unknownbuff, "PRIVMSG %s\n", othernick);
+  printf("PRIVMSG othernick %s\n", othernick);
+  if(r == 1 && strlen(nick) == 0){
     snprintf(msgbuff, 1024, ":dancingcats.com 241 * PRIVMSG command sent before registration\n");
     write(fd, msgbuff, strlen(msgbuff));
   }
   
   r = sscanf(unknownbuff, "NICK: %s\n", nick);
   if(r != 1){
-      snprintf(msgbuff, 1024, "ERROR: nick not resolved");
+      snprintf(msgbuff, 1024, "ERROR 101: nick not resolved");
       write(fd, msgbuff, strlen(msgbuff));
-}
-  if(strlen(nick) != 0){
-//    snprintf(msgbuff, 1024, ":dancingcats.com 241 %s Greetings, welcome 
-//to Clefable Cottage\n",  nick);
-//    write(fd, msgbuff, strlen(msgbuff));
   }
 
   r = sscanf(unknownbuff, "USER: %s\n", user);
-  if(strlen(nick) == 0){
-     snprintf(msgbuff, 1024, "ERROR: nick not resolved");
+  if(r == 1 && strlen(nick) == 0){
+     snprintf(msgbuff, 1024, "ERROR 102: nick not resolved");
      write(fd, msgbuff, strlen(msgbuff));}
   if(strlen(nick) != 0){
      snprintf(msgbuff, 1024, ":dancingcats.com 001 %s Greetings, Welcome to Clefable Cottage\n", nick);
@@ -201,16 +205,19 @@ int doing_connections(int fd){
      snprintf(msgbuff, 1024, ":dancingcats.com 254 %s There are 3 :channels formed\n", nick);
      write(fd, msgbuff, strlen(msgbuff));
      snprintf(msgbuff, 1024, ":dancingcats.com 255 %s There are 1004 clients and 1 server\n", nick);
-}
+  }
 
   close(fd);
+  fprintf(stdout, "non-timeout close: %d\n", connection_count);
   return 0;
 }
 
 
 int main(int argc,char **argv)
 {
+
   signal(SIGPIPE, SIG_IGN);
+  
   if (argc!=2) {
   fprintf(stderr,"usage: sample <tcp port>\n");
   exit(-1);
