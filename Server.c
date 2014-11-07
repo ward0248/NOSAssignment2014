@@ -41,6 +41,9 @@
 #include <pthread.h>
 #include <ctype.h>
 
+//#define DEBUG "fprintf("DEBUGGING: %s %d\n", debug_string, position);"
+#define SERVER_NAME ":dancingcats.com"
+
 
 /*
   variables
@@ -141,22 +144,28 @@ int read_from_socket(int sock, unsigned char *buffer, int *count, int buffer_siz
   if receives JOIN or PRIVMSG request before nick registered then informs of error
   when recieves nick and user request, client becomes registered and is greeted
  */
-int doing_connections(int fd){
+int doing_connections(void *stuff){
+
+
+  struct client_thread *thread = stuff;
+  thread->state = 0;
+  thread-> timeout = time(0)+5;
+  strcpy(thread->nickname, "*");
 
   connection_count++;
   printf("Connection %d  seen \n", connection_count);
   char msgbuff[1024];
-  snprintf(msgbuff, 1024, ":dancingcats.com 020 * Hello and welcome to the server.\n");
-  write(fd, msgbuff, strlen(msgbuff));
+  snprintf(msgbuff, 1024, "%s 020 %s Hello and welcome to the server.\n", SERVER_NAME, thread->nickname);
+  write(thread->fd, msgbuff, strlen(msgbuff));
 
   char unknownbuff[8192];
   int length=0;
-  int r = read_from_socket(fd,(unsigned char *) unknownbuff, &length, 8192, 5);
+  int r = read_from_socket(thread->fd,(unsigned char *) unknownbuff, &length, 8192, 5);
   printf("debug:unknownbuff directly after read in:%s:\n", unknownbuff);
   if(length==0){
     snprintf(msgbuff, 1024, "ERROR:Closing Link: Dancing cats timed out (Longer than 5 secs)\n");
-    write(fd, msgbuff, strlen(msgbuff));
-    close(fd);
+    write(thread->fd, msgbuff, strlen(msgbuff));
+    close(thread->fd);
     fprintf(stdout, "timeout close:%s  %d\n", msgbuff, connection_count);
     return 0;
   } 
@@ -164,52 +173,50 @@ int doing_connections(int fd){
   char nick[1024], channel_name[1024], user[1024], othernick[1024];
   
   r = sscanf(unknownbuff, "JOIN %s\n", channel_name);
-  printf("JOIN channel name: %s\n", channel_name);
+  printf("DEBUG: JOIN channel name: %s\n", channel_name);
   if(r == 1 && strlen(nick) == 0){
     snprintf(msgbuff, 1024, ":dancingcats.com 241 * JOIN command sent before registration\n");
-    write(fd, msgbuff, strlen(msgbuff));
+    write(thread->fd, msgbuff, strlen(msgbuff));
   }
   
-  printf("debug:unknownbuff after scanning for JOIN:%s:\n", unknownbuff);
-  r = read_from_socket(fd,(unsigned char *) unknownbuff, &length, 8192, 5);
-  printf("debug:unknownbuff after scanning for JOIN and rereading:%s:\n", unknownbuff);
+  printf("DEBUG:unknownbuff after scanning for JOIN:%s:\n", unknownbuff);
+  r = read_from_socket(thread->fd,(unsigned char *) unknownbuff, &length, 8192, 5);
+  printf("DEBUG:unknownbuff after scanning for JOIN and rereading:%s:\n", unknownbuff);
   
   r = sscanf(unknownbuff, "PRIVMSG %s\n", othernick);
-  printf("PRIVMSG othernick %s\n", othernick);
+  printf("DEBUG: PRIVMSG othernick %s\n", othernick);
   if(r == 1 && strlen(nick) == 0){
     snprintf(msgbuff, 1024, ":dancingcats.com 241 * PRIVMSG command sent before registration\n");
-    write(fd, msgbuff, strlen(msgbuff));
+    write(thread->fd, msgbuff, strlen(msgbuff));
   }
   
   r = sscanf(unknownbuff, "NICK: %s\n", nick);
-  if(r != 1){
-      snprintf(msgbuff, 1024, "ERROR 101: nick not resolved");
-      write(fd, msgbuff, strlen(msgbuff));
-  }
-
+  
   r = sscanf(unknownbuff, "USER: %s\n", user);
   if(r == 1 && strlen(nick) == 0){
      snprintf(msgbuff, 1024, "ERROR 102: nick not resolved");
-     write(fd, msgbuff, strlen(msgbuff));}
+     write(thread->fd, msgbuff, strlen(msgbuff));}
   if(strlen(nick) != 0){
      snprintf(msgbuff, 1024, ":dancingcats.com 001 %s Greetings, Welcome to Clefable Cottage\n", nick);
-     write(fd, msgbuff, strlen(msgbuff));
+     write(thread->fd, msgbuff, strlen(msgbuff));
      snprintf(msgbuff, 1024, ":dancingcats.com 002 %s Poke Centre is to the left\n", nick);
-     write(fd, msgbuff, strlen(msgbuff));
+     write(thread->fd, msgbuff, strlen(msgbuff));
      snprintf(msgbuff, 1024, ":dancingcats.com 003 %s Gym is to the right\n", nick);
-     write(fd, msgbuff, strlen(msgbuff));
+     write(thread->fd, msgbuff, strlen(msgbuff));
      snprintf(msgbuff, 1024, ":dancingcats.com 004 %s Check out the Ghost Tower\n", nick);
-     write(fd, msgbuff, strlen(msgbuff));
+     write(thread->fd, msgbuff, strlen(msgbuff));
      snprintf(msgbuff, 1024, ":dancingcats.com 253 %s There are 50 :unknown connections\n", nick);
-     write(fd, msgbuff, strlen(msgbuff));
+     write(thread->fd, msgbuff, strlen(msgbuff));
      snprintf(msgbuff, 1024, ":dancingcats.com 254 %s There are 3 :channels formed\n", nick);
-     write(fd, msgbuff, strlen(msgbuff));
+     write(thread->fd, msgbuff, strlen(msgbuff));
      snprintf(msgbuff, 1024, ":dancingcats.com 255 %s There are 1004 clients and 1 server\n", nick);
   }
 
-  close(fd);
-  fprintf(stdout, "non-timeout close: %d\n", connection_count);
-  return 0;
+  r = sscanf(unknownbuff, "QUIT");
+  
+     close(thread->fd);
+     fprintf(stdout, "close quitting: %d\n", connection_count);
+     return 0;
 }
 
 
@@ -231,8 +238,14 @@ int main(int argc,char **argv)
     int client_sock = accept_incoming(master_socket);
     if (client_sock!=-1) {
       // Got connection -- do something with it.
-      doing_connections(client_sock);
-
+      
+      struct client_thread *thread = calloc(sizeof(struct client_thread), 1);
+      if(thread != NULL){
+        thread->fd = client_sock;
+        if(pthread_create(&thread->thread, NULL, doing_connections, (void*)thread)){
+          close(client_sock);
+        }
+      }
     }
   }
 }
